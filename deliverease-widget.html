@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeliverEase Widget</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; padding: 16px; background: transparent; }
+        .widget-container { max-width: 400px; margin: 0 auto; }
+    </style>
+</head>
+<body>
+    <div class="widget-container">
+        <div id="deliverease-app"></div>
+    </div>
+    
+    <script>
+        const API_BASE_URL = 'https://api.databutton.com/_projects/f5004605-b1f2-483a-861a-9e48c979a7c6/dbtn/prodx/app/routes';
+        
+        let currentState = 'input';
+        let widgetData = {};
+        
+        function createWidget() {
+            const app = document.getElementById('deliverease-app');
+            
+            app.innerHTML = '<div class="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">' +
+                '<div class="flex items-center gap-2 mb-4">' +
+                    '<div class="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">' +
+                        '<span class="text-white text-sm font-bold">D</span>' +
+                    '</div>' +
+                    '<h3 class="text-lg font-semibold text-gray-900">DeliverEase</h3>' +
+                '</div>' +
+                '<div id="widget-content">' + getContentForState() + '</div>' +
+            '</div>';
+        }
+        
+        function getContentForState() {
+            switch(currentState) {
+                case 'loading':
+                    return '<div class="text-center py-4">' +
+                        '<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>' +
+                        '<p class="text-gray-600">Checking delivery options...</p>' +
+                    '</div>';
+                    
+                case 'popup':
+                    return '<div class="space-y-4">' +
+                        '<p class="text-sm text-gray-600">Enter your delivery address:</p>' +
+                        '<input type="text" id="address-input" placeholder="Address" class="w-full px-3 py-2 border border-gray-300 rounded-md">' +
+                        '<input type="text" id="postal-input" placeholder="Postal Code" class="w-full px-3 py-2 border border-gray-300 rounded-md">' +
+                        '<button onclick="checkDelivery()" class="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">Check Delivery Options</button>' +
+                    '</div>';
+                    
+                case 'success':
+                    return '<div class="text-center py-4">' +
+                        '<div class="text-green-600 text-2xl mb-2">✓</div>' +
+                        '<p class="text-green-700 font-medium">Delivery available!</p>' +
+                        '<p class="text-sm text-gray-600 mt-1">Your address has been added to checkout.</p>' +
+                    '</div>';
+                    
+                default:
+                    return '<div class="space-y-4">' +
+                        '<p class="text-sm text-gray-600">Enter your phone number to check delivery options:</p>' +
+                        '<input type="tel" id="phone-input" placeholder="Phone number" class="w-full px-3 py-2 border border-gray-300 rounded-md">' +
+                        '<button onclick="lookupPhone()" class="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">Check Delivery</button>' +
+                    '</div>';
+            }
+        }
+        
+        function updateWidget() {
+            const content = document.getElementById('widget-content');
+            content.innerHTML = getContentForState();
+        }
+        
+        async function lookupPhone() {
+            const phone = document.getElementById('phone-input').value;
+            if (!phone) return;
+            
+            currentState = 'loading';
+            updateWidget();
+            
+            try {
+                const response = await fetch(API_BASE_URL + '/addresslookup/address', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone_number: phone })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    widgetData = data;
+                    await checkPostalCode(data.postal_code);
+                } else {
+                    currentState = 'popup';
+                    updateWidget();
+                }
+            } catch (error) {
+                currentState = 'popup';
+                updateWidget();
+            }
+        }
+        
+        async function checkDelivery() {
+            const address = document.getElementById('address-input').value;
+            const postal = document.getElementById('postal-input').value;
+            
+            if (!address || !postal) return;
+            
+            currentState = 'loading';
+            updateWidget();
+            
+            await checkPostalCode(postal);
+        }
+        
+        async function checkPostalCode(postalCode) {
+            try {
+                const response = await fetch(API_BASE_URL + '/postalcode/check-availability', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ postal_code: postalCode })
+                });
+                
+                currentState = 'success';
+                updateWidget();
+                
+                if (window.parent !== window) {
+                    window.parent.postMessage({
+                        type: 'deliverease-success',
+                        data: { address: widgetData, postal: postalCode }
+                    }, '*');
+                }
+                
+            } catch (error) {
+                currentState = 'success';
+                updateWidget();
+            }
+        }
+        
+        createWidget();
+        
+        window.lookupPhone = lookupPhone;
+        window.checkDelivery = checkDelivery;
+    </script>
+</body>
+</html>
